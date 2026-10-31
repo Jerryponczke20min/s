@@ -64,8 +64,11 @@ public class RadarScreen extends Screen {
             if (cfg.tab == 0) cfg.msAuto = !cfg.msAuto; else cfg.anAuto = !cfg.anAuto;
             cfg.save(); clearAndInit();
         }).dimensions(left, top + 78, 200, 20).build());
-        addDrawableChild(ButtonWidget.builder(Text.literal("Wyczysc reczne tracery"), b -> Radar.TRACED.clear())
-            .dimensions(left + 204, top + 78, 196, 20).build());
+        addDrawableChild(ButtonWidget.builder(Text.literal("ESP: " + (cfg.esp ? "§aON" : "§cOFF")), b -> {
+            cfg.esp = !cfg.esp; cfg.save(); clearAndInit();
+        }).dimensions(left + 204, top + 78, 96, 20).build());
+        addDrawableChild(ButtonWidget.builder(Text.literal("Wyczyść ręczne"), b -> Radar.TRACED.clear())
+            .dimensions(left + 304, top + 78, 96, 20).build());
 
         listTop = top + 106;
         tick();

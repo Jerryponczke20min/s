@@ -15,6 +15,7 @@ public class RadarConfig {
     public String radarRange = "100";
     public String tracerRange = "100";
     public String color = "990F2D"; // wisniowy
+    public boolean esp = true;
 
     // MineStar
     public String swMin = "", swMax = "", arMin = "", arMax = "";
