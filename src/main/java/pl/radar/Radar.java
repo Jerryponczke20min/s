@@ -1,7 +1,10 @@
 package pl.radar;
 
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.registry.Registries;
+import net.minecraft.util.Formatting;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -9,7 +12,9 @@ import java.util.concurrent.ConcurrentHashMap;
 public class Radar {
     /** Gracze zaznaczeni recznie (po nicku). */
     public static final Set<String> TRACED = ConcurrentHashMap.newKeySet();
-    /** Gracze, na ktorych w tej chwili rysujemy tracer (liczone co tick). */
+    /** Moby zaznaczone recznie (po UUID). */
+    public static final Set<UUID> TRACED_UUID = ConcurrentHashMap.newKeySet();
+    /** Wszystkie byty (gracze i moby), na ktore rysujemy tracer (liczone co tick). */
     public static volatile Set<UUID> targets = Set.of();
 
     public static List<PlayerData> scan(double range) {
@@ -57,12 +62,81 @@ public class Radar {
         return c.anAuto && matchesAnarchy(d, c);
     }
 
+    // ---------- EVENT (moby) ----------
+
+    public static boolean eventActive(RadarConfig c) {
+        return !c.eventType.isBlank() || !c.eventText.isBlank();
+    }
+
+    public static String stripName(Entity e) {
+        if (e.getCustomName() == null) return "";
+        String s = Formatting.strip(e.getCustomName().getString());
+        return s == null ? "" : s;
+    }
+
+    public static String entityLabel(Entity e) {
+        String type = e.getType().getName().getString();
+        String n = stripName(e);
+        return n.isEmpty() ? type : n + " §7(" + type + ")";
+    }
+
+    public static boolean matchesEvent(Entity e, RadarConfig c) {
+        if (e instanceof PlayerEntity || !eventActive(c)) return false;
+        if (!c.eventType.isBlank() && !Registries.ENTITY_TYPE.getId(e.getType()).toString().equals(c.eventType)) {
+            return false;
+        }
+        if (!c.eventText.isBlank()) {
+            String n = stripName(e).toLowerCase();
+            if (!n.contains(c.eventText.trim().toLowerCase())) return false;
+        }
+        return true;
+    }
+
+    public static List<Entity> scanEvents(double range) {
+        MinecraftClient mc = MinecraftClient.getInstance();
+        List<Entity> out = new ArrayList<>();
+        if (mc.player == null || mc.world == null || !eventActive(RadarConfig.I)) return out;
+        for (Entity e : mc.world.getEntities()) {
+            if (e == mc.player || !matchesEvent(e, RadarConfig.I)) continue;
+            if (mc.player.distanceTo(e) > range) continue;
+            out.add(e);
+        }
+        out.sort(Comparator.comparingDouble(x -> mc.player.distanceTo(x)));
+        return out;
+    }
+
+    // ---------- tick ----------
+
     public static void tick() {
         RadarConfig c = RadarConfig.I;
+        MinecraftClient mc = MinecraftClient.getInstance();
         Set<UUID> t = new HashSet<>();
+        boolean fresh = false;
+        Set<UUID> old = targets;
+
         for (PlayerData d : scan(c.tracer())) {
-            if (shouldTrace(d, c)) t.add(d.player.getUuid());
+            if (!shouldTrace(d, c)) continue;
+            UUID u = d.player.getUuid();
+            t.add(u);
+            if (!TRACED.contains(d.name) && !old.contains(u)) fresh = true;
         }
+
+        if (mc.world != null && mc.player != null
+            && (!TRACED_UUID.isEmpty() || (c.eventAuto && eventActive(c)))) {
+            double r = c.tracer();
+            for (Entity e : mc.world.getEntities()) {
+                if (e == mc.player || e instanceof PlayerEntity) continue;
+                if (mc.player.distanceTo(e) > r) continue;
+                UUID u = e.getUuid();
+                boolean manual = TRACED_UUID.contains(u);
+                if (manual || (c.eventAuto && matchesEvent(e, c))) {
+                    t.add(u);
+                    if (!manual && !old.contains(u)) fresh = true;
+                }
+            }
+        }
+
+        if (fresh) Ui.ping();
         targets = t;
     }
 }
