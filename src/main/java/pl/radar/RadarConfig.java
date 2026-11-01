@@ -34,6 +34,15 @@ public class RadarConfig {
     public String eventType = "";  // np. minecraft:cow, puste = dowolny
     public String eventText = "";  // napis nad glowa (zawiera)
     public boolean eventAuto = false;
+    public boolean eventBlocks = true; // szukaj tez w tabliczkach
+
+    // PvP
+    public boolean noShake = true;     // stabilizacja kamery
+    public boolean origSaved = false;  // zapamietane oryginalne ustawienia gry
+    public boolean origBob = true;
+    public double origTilt = 1.0, origFov = 1.0;
+    public boolean hitPlayers = false, hitMobs = false, hitLook = false;
+    public String hitColor = "FFFFFF";
 
     public static final RadarConfig I = load();
 
@@ -55,6 +64,7 @@ public class RadarConfig {
     public double tracer() { return parseD(tracerRange, 100); }
     public int colorRgb() { return hex(color, 0x990F2D); }
     public int accent() { return hex(guiColor, 0x7C5CFF); }
+    public int hitRgb() { return hex(hitColor, 0xFFFFFF); }
 
     private static int hex(String s, int def) {
         try { return Integer.parseInt(s.replace("#", "").trim(), 16) & 0xFFFFFF; }

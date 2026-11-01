@@ -8,6 +8,10 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gl.ShaderProgramKeys;
 import net.minecraft.client.render.*;
 import net.minecraft.entity.Entity;
+import net.minecraft.entity.LivingEntity;
+import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
@@ -18,14 +22,17 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * Tracery + ESP. Poczatek tracera jest zawsze w srodku ekranu (celownik) i porusza sie razem z nim.
- * Rysujemy wlasna macierza + projekcja, a aktualna macierz model-view gry jest cofana (odwrocona),
- * wiec ani kolysanie kamery, ani stan renderera gry nie przesuwa linii.
+ * Tracery, ESP i hitboxy. Poczatek tracera jest w srodku ekranu (celownik).
+ * Rysujemy wlasna macierza + projekcja, a macierz model-view gry jest cofana,
+ * wiec stan renderera gry nie przesuwa linii. Najlepiej dziala ze stabilizacja kamery (zakladka PvP).
  */
 public class TracerRenderer {
     private static final int[][] EDGES = {
         {0,1},{1,2},{2,3},{3,0}, {4,5},{5,6},{6,7},{7,4}, {0,4},{1,5},{2,6},{3,7}
     };
+
+    /** Jeden odcinek: albo od celownika (fromCrosshair), albo miedzy dwoma punktami swiata (wzgledem kamery). */
+    private record Seg(boolean fromCrosshair, float ax, float ay, float az, float bx, float by, float bz, int rgb) {}
 
     public static void register() {
         WorldRenderEvents.LAST.register(ctx -> {
@@ -33,30 +40,78 @@ public class TracerRenderer {
         });
     }
 
+    private static void addBox(List<Seg> out, float x0, float y0, float z0, float x1, float y1, float z1, int rgb) {
+        float[][] k = {
+            {x0,y0,z0},{x1,y0,z0},{x1,y0,z1},{x0,y0,z1},
+            {x0,y1,z0},{x1,y1,z0},{x1,y1,z1},{x0,y1,z1}
+        };
+        for (int[] ed : EDGES) {
+            out.add(new Seg(false, k[ed[0]][0], k[ed[0]][1], k[ed[0]][2], k[ed[1]][0], k[ed[1]][1], k[ed[1]][2], rgb));
+        }
+    }
+
     private static void render(WorldRenderContext ctx) {
         MinecraftClient mc = MinecraftClient.getInstance();
-        Set<UUID> targets = Radar.targets;
-        if (mc.world == null || mc.player == null || targets.isEmpty()) return;
+        RadarConfig cfg = RadarConfig.I;
+        if (mc.world == null || mc.player == null) return;
 
-        List<Entity> list = new ArrayList<>();
-        for (Entity e : mc.world.getEntities()) {
-            if (e != mc.player && targets.contains(e.getUuid())) list.add(e);
-        }
-        if (list.isEmpty()) return;
+        Set<UUID> targets = Radar.targets;
+        Set<BlockPos> blocks = Radar.blockTargets;
+        boolean hitboxes = cfg.hitPlayers || cfg.hitMobs;
+        if (targets.isEmpty() && blocks.isEmpty() && !hitboxes) return;
 
         Camera cam = ctx.camera();
         Vec3d camPos = cam.getPos();
         float delta = ctx.tickCounter().getTickDelta(false);
+        int traceRgb = cfg.colorRgb(), hitRgb = cfg.hitRgb();
+        boolean esp = cfg.esp;
+        double hitRange2 = cfg.radar() * cfg.radar();
 
-        int rgb = RadarConfig.I.colorRgb();
-        int r = (rgb >> 16) & 255, g = (rgb >> 8) & 255, b = rgb & 255;
-        boolean esp = RadarConfig.I.esp;
+        // 1) zbieramy odcinki - jesli nic nie ma, nie dotykamy bufora ani projekcji
+        List<Seg> segs = new ArrayList<>();
+        for (Entity e : mc.world.getEntities()) {
+            if (e == mc.player) continue;
+            Vec3d c = e.getLerpedPos(delta).subtract(camPos);
 
-        // chcemy, zeby shader finalnie uzyl DOKLADNIE naszej macierzy: MV * (inv(MV) * nasza) = nasza
+            if (targets.contains(e.getUuid())) {
+                float w = e.getWidth() / 2f, h = e.getHeight();
+                segs.add(new Seg(true, 0, 0, 0, (float) c.x, (float) (c.y + h / 2), (float) c.z, traceRgb));
+                if (esp) {
+                    addBox(segs, (float) c.x - w, (float) c.y, (float) c.z - w,
+                        (float) c.x + w, (float) c.y + h, (float) c.z + w, traceRgb);
+                }
+            }
+
+            if (hitboxes && mc.player.squaredDistanceTo(e) <= hitRange2) {
+                boolean show = e instanceof PlayerEntity ? cfg.hitPlayers : (e instanceof LivingEntity && cfg.hitMobs);
+                if (show) {
+                    Box b = e.getBoundingBox();
+                    Vec3d off = e.getLerpedPos(delta).subtract(e.getPos()).subtract(camPos);
+                    addBox(segs, (float) (b.minX + off.x), (float) (b.minY + off.y), (float) (b.minZ + off.z),
+                        (float) (b.maxX + off.x), (float) (b.maxY + off.y), (float) (b.maxZ + off.z), hitRgb);
+                    if (cfg.hitLook && e instanceof LivingEntity) {
+                        Vec3d eye = c.add(0, e.getEyeHeight(e.getPose()), 0);
+                        Vec3d end = eye.add(e.getRotationVec(delta).multiply(2.0));
+                        segs.add(new Seg(false, (float) eye.x, (float) eye.y, (float) eye.z,
+                            (float) end.x, (float) end.y, (float) end.z, 0x4F8CFF));
+                    }
+                }
+            }
+        }
+
+        // bloki (np. tabliczki z napisem)
+        for (BlockPos p : blocks) {
+            float x0 = (float) (p.getX() - camPos.x), y0 = (float) (p.getY() - camPos.y), z0 = (float) (p.getZ() - camPos.z);
+            segs.add(new Seg(true, 0, 0, 0, x0 + 0.5f, y0 + 0.5f, z0 + 0.5f, traceRgb));
+            if (esp) addBox(segs, x0, y0, z0, x0 + 1, y0 + 1, z0 + 1, traceRgb);
+        }
+        if (segs.isEmpty()) return;
+
+        // 2) macierze
         Matrix4f inv = new Matrix4f(RenderSystem.getModelViewMatrix()).invert();
         Matrix4f rot = new Matrix4f().rotation(cam.getRotation().conjugate(new Quaternionf()));
-        Matrix4f view = inv.mul(rot, new Matrix4f());   // dla punktow w swiecie (wzgledem kamery)
-        Matrix4f ident = new Matrix4f(inv);             // dla punktu przy celowniku
+        Matrix4f view = inv.mul(rot, new Matrix4f());
+        Matrix4f ident = new Matrix4f(inv);
 
         Matrix4f oldProj = new Matrix4f(RenderSystem.getProjectionMatrix());
         ProjectionType oldType = RenderSystem.getProjectionType();
@@ -68,27 +123,11 @@ public class TracerRenderer {
                 ProjectionType.PERSPECTIVE);
 
             BufferBuilder buf = Tessellator.getInstance().begin(VertexFormat.DrawMode.DEBUG_LINES, VertexFormats.POSITION_COLOR);
-            for (Entity e : list) {
-                Vec3d c = e.getLerpedPos(delta).subtract(camPos);
-                float w = e.getWidth() / 2f, h = e.getHeight();
-
-                // tracer: od celownika (srodek ekranu) do srodka ciala
-                buf.vertex(ident, 0f, 0f, -0.5f).color(r, g, b, 255);
-                buf.vertex(view, (float) c.x, (float) (c.y + h / 2), (float) c.z).color(r, g, b, 255);
-
-                if (esp) {
-                    float x0 = (float) c.x - w, x1 = (float) c.x + w;
-                    float y0 = (float) c.y, y1 = (float) c.y + h;
-                    float z0 = (float) c.z - w, z1 = (float) c.z + w;
-                    float[][] k = {
-                        {x0,y0,z0},{x1,y0,z0},{x1,y0,z1},{x0,y0,z1},
-                        {x0,y1,z0},{x1,y1,z0},{x1,y1,z1},{x0,y1,z1}
-                    };
-                    for (int[] ed : EDGES) {
-                        buf.vertex(view, k[ed[0]][0], k[ed[0]][1], k[ed[0]][2]).color(r, g, b, 255);
-                        buf.vertex(view, k[ed[1]][0], k[ed[1]][1], k[ed[1]][2]).color(r, g, b, 255);
-                    }
-                }
+            for (Seg s : segs) {
+                int r = (s.rgb >> 16) & 255, g = (s.rgb >> 8) & 255, b = s.rgb & 255;
+                if (s.fromCrosshair) buf.vertex(ident, 0f, 0f, -0.5f).color(r, g, b, 255);
+                else buf.vertex(view, s.ax, s.ay, s.az).color(r, g, b, 255);
+                buf.vertex(view, s.bx, s.by, s.bz).color(r, g, b, 255);
             }
 
             RenderSystem.setShader(ShaderProgramKeys.POSITION_COLOR);

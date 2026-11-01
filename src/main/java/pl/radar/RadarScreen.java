@@ -6,7 +6,6 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.PlayerSkinDrawer;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.network.PlayerListEntry;
-import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityType;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.SpawnGroup;
@@ -24,7 +23,9 @@ import java.util.function.Supplier;
 
 public class RadarScreen extends Screen {
     private static final int W = 480, ROW = 26, MROW = 20;
-    private static final String[] TABS = {"MineStar", "Anarchia", "Event", "Ustawienia"};
+    private static final int TAB_STEP = 92, TAB_W = 88, TAB_IND = 36;
+    private static final String[] TABS = {"MineStar", "Anarchia", "Event", "PvP", "Ustawienia"};
+    private static final int T_MS = 0, T_AN = 1, T_EV = 2, T_PVP = 3, T_SET = 4;
     private static final String[] MATERIAL = {"Set: dowolny", "Set: diament", "Set: netherite"};
     private static final String[] MODE = {"Tryb: dowolny", "Anarchiczny I", "Anarchiczny II"};
     private static final int[] SWATCH = {
@@ -41,10 +42,10 @@ public class RadarScreen extends Screen {
 
     private final List<Btn> btns = new ArrayList<>();
     private final List<RField> fields = new ArrayList<>();
-    private RField tracerHex, guiHex;
+    private RField tracerHex, guiHex, hitHex;
 
     private List<PlayerData> rows = new ArrayList<>();
-    private List<Entity> found = new ArrayList<>();
+    private List<Radar.Hit> found = new ArrayList<>();
     private List<EntityType<?>> mobs = new ArrayList<>();
     private String mobSearch = "";
     private int scrollP, scrollM, scrollF;
@@ -73,13 +74,15 @@ public class RadarScreen extends Screen {
         cy = y0 + 54;
         btns.clear();
         fields.clear();
+        tracerHex = guiHex = hitHex = null;
 
         btn(x0 + W - 30, y0 + 8, 20, 16, () -> "×", null, this::close);
 
         switch (cfg.tab) {
-            case 0 -> initMineStar();
-            case 1 -> initAnarchy();
-            case 2 -> initEvent();
+            case T_MS -> initMineStar();
+            case T_AN -> initAnarchy();
+            case T_EV -> initEvent();
+            case T_PVP -> initPvp();
             default -> initSettings();
         }
         tick();
@@ -118,10 +121,24 @@ public class RadarScreen extends Screen {
         field(x0 + 24, cy + 10, 190, mobSearch, "Szukaj moba...", s -> { mobSearch = s; scrollM = 0; refreshMobs(); });
         refreshMobs();
 
-        btn(x0 + 394, cy + 22, 62, 18, () -> "Dowolny", null, () -> { cfg.eventType = ""; cfg.save(); });
-        field(x0 + 244, cy + 60, 212, cfg.eventText, "np. Halloween", s -> cfg.eventText = s);
-        btn(x0 + 244, cy + 84, 212, 20, () -> "Auto-tracery: " + (cfg.eventAuto ? "§aON" : "§cOFF"),
+        field(x0 + 244, cy + 22, 212, cfg.eventText, "np. Halloween", s -> cfg.eventText = s);
+        btn(x0 + 394, cy + 48, 62, 18, () -> "Dowolny", null, () -> { cfg.eventType = ""; cfg.save(); });
+        btn(x0 + 244, cy + 72, 104, 20, () -> "Auto: " + (cfg.eventAuto ? "§aON" : "§cOFF"),
             () -> cfg.eventAuto, () -> { cfg.eventAuto = !cfg.eventAuto; cfg.save(); });
+        btn(x0 + 352, cy + 72, 104, 20, () -> "Bloki: " + (cfg.eventBlocks ? "§aON" : "§cOFF"),
+            () -> cfg.eventBlocks, () -> { cfg.eventBlocks = !cfg.eventBlocks; cfg.save(); });
+    }
+
+    private void initPvp() {
+        btn(x0 + 24, cy + 10, 210, 20, () -> "Stabilizacja kamery: " + (cfg.noShake ? "§aON" : "§cOFF"),
+            () -> cfg.noShake, () -> { cfg.noShake = !cfg.noShake; cfg.save(); });
+        btn(x0 + 24, cy + 78, 138, 20, () -> "Hitboxy graczy: " + (cfg.hitPlayers ? "§aON" : "§cOFF"),
+            () -> cfg.hitPlayers, () -> { cfg.hitPlayers = !cfg.hitPlayers; cfg.save(); });
+        btn(x0 + 170, cy + 78, 138, 20, () -> "Hitboxy mobów: " + (cfg.hitMobs ? "§aON" : "§cOFF"),
+            () -> cfg.hitMobs, () -> { cfg.hitMobs = !cfg.hitMobs; cfg.save(); });
+        btn(x0 + 316, cy + 78, 138, 20, () -> "Linia wzroku: " + (cfg.hitLook ? "§aON" : "§cOFF"),
+            () -> cfg.hitLook, () -> { cfg.hitLook = !cfg.hitLook; cfg.save(); });
+        hitHex = field(x0 + 170, cy + 106, 70, cfg.hitColor, "RRGGBB", s -> cfg.hitColor = s);
     }
 
     private void initSettings() {
@@ -145,7 +162,7 @@ public class RadarScreen extends Screen {
 
     private RField field(int x, int y, int w, String val, String hint, Consumer<String> setter) {
         RField f = new RField(textRenderer, x, y, w, 18);
-        f.setMaxLength(32);
+        f.setMaxLength(40);
         f.setText(val);
         f.setPlaceholder(Text.literal(hint).formatted(Formatting.DARK_GRAY));
         f.setChangedListener(s -> { setter.accept(s); cfg.save(); });
@@ -173,10 +190,10 @@ public class RadarScreen extends Screen {
 
     @Override
     public void tick() {
-        if (cfg.tab <= 1) {
+        if (cfg.tab <= T_AN) {
             rows = Radar.scan(cfg.radar());
             scrollP = Math.max(0, Math.min(scrollP, rows.size() - Math.max(1, rectP[3] / ROW)));
-        } else if (cfg.tab == 2) {
+        } else if (cfg.tab == T_EV) {
             found = Radar.scanEvents(cfg.radar());
             scrollF = Math.max(0, Math.min(scrollF, found.size() - Math.max(1, rectF[3] / MROW)));
         }
@@ -205,22 +222,22 @@ public class RadarScreen extends Screen {
         c.drawText(tr, "§lRADAR", x0 + 18, y0 + 10, Ui.solid(accent), false);
         c.drawText(tr, "GRACZY", x0 + 18 + tr.getWidth("§lRADAR") + 4, y0 + 10, Ui.MUTED, false);
 
-        // zakladki
-        float target = x0 + 14 + cfg.tab * 104 + 30;
+        float target = x0 + 14 + cfg.tab * TAB_STEP + (TAB_W - TAB_IND) / 2f;
         tabX = tabX < 0 ? target : tabX + (target - tabX) * 0.25f;
         for (int i = 0; i < TABS.length; i++) {
-            int tx = x0 + 14 + i * 104;
-            boolean hov = inside(mx, my, tx, y0 + 26, 100, 20);
-            if (hov && i != cfg.tab) Ui.rrect(c, tx, y0 + 26, 100, 18, 5, 0x20FFFFFF);
+            int tx = x0 + 14 + i * TAB_STEP;
+            boolean hov = inside(mx, my, tx, y0 + 26, TAB_W, 20);
+            if (hov && i != cfg.tab) Ui.rrect(c, tx, y0 + 26, TAB_W, 18, 5, 0x20FFFFFF);
             int col = i == cfg.tab ? 0xFFFFFFFF : hov ? 0xFFC8CCD8 : Ui.MUTED;
-            c.drawText(tr, TABS[i], tx + (100 - tr.getWidth(TABS[i])) / 2, y0 + 31, col, false);
+            c.drawText(tr, TABS[i], tx + (TAB_W - tr.getWidth(TABS[i])) / 2, y0 + 31, col, false);
         }
-        Ui.rrect(c, Math.round(tabX), y0 + 45, 40, 2, 1, Ui.solid(accent));
+        Ui.rrect(c, Math.round(tabX), y0 + 45, TAB_IND, 2, 1, Ui.solid(accent));
 
         switch (cfg.tab) {
-            case 0, 1 -> renderPlayers(c, mx, my, tr, accent);
-            case 2 -> renderEvent(c, mx, my, tr, accent);
-            default -> renderSettings(c, tr, accent);
+            case T_MS, T_AN -> renderPlayers(c, mx, my, tr, accent);
+            case T_EV -> renderEvent(c, mx, my, tr, accent);
+            case T_PVP -> renderPvp(c, tr);
+            default -> renderSettings(c, tr);
         }
 
         for (Btn b : btns) renderBtn(c, b, mx, my, tr, accent);
@@ -260,14 +277,16 @@ public class RadarScreen extends Screen {
 
     private void renderPlayers(DrawContext c, int mx, int my, TextRenderer tr, int accent) {
         card(c, x0 + 14, cy, W - 28, 60);
-        if (cfg.tab == 0) {
+        if (cfg.tab == T_MS) {
             c.drawItem(new ItemStack(Items.DIAMOND_SWORD), x0 + 24, cy + 9);
             c.drawItem(new ItemStack(Items.SHIELD), x0 + 170, cy + 9);
         } else {
             c.drawText(tr, "Ench >=", x0 + 144, cy + 14, Ui.MUTED, false);
             c.drawText(tr, "Prot >=", x0 + 226, cy + 14, Ui.MUTED, false);
         }
-        c.drawText(tr, "Puste pola = brak filtra. Pasujący gracze są podświetleni.", x0 + 164, cy + 40, Ui.MUTED, false);
+        String hint = cfg.tab == T_MS ? "Puste pola = brak filtra. Pasujący gracze są podświetleni."
+            : "I: netherite + enchanty • II: netherite + fiolet (amethyst) + lepsze ench.";
+        c.drawText(tr, hint, x0 + 164, cy + 40, Ui.MUTED, false);
 
         int lx = x0 + 14, ly = cy + 68, lw = W - 28, lh = y0 + H - 14 - ly;
         rectP[0] = lx; rectP[1] = ly; rectP[2] = lw; rectP[3] = lh;
@@ -280,7 +299,7 @@ public class RadarScreen extends Screen {
         for (int i = 0; i < vis && i + scrollP < rows.size(); i++) {
             PlayerData d = rows.get(i + scrollP);
             int ry = ly + i * ROW;
-            boolean match = cfg.tab == 0 ? Radar.matchesMineStar(d, cfg) : Radar.matchesAnarchy(d, cfg);
+            boolean match = cfg.tab == T_MS ? Radar.matchesMineStar(d, cfg) : Radar.matchesAnarchy(d, cfg);
             boolean on = Radar.TRACED.contains(d.name) || Radar.targets.contains(d.player.getUuid());
             boolean hov = inside(mx, my, lx, ry, lw - 8, ROW - 2);
             int bg = match ? Ui.alpha(accent, hov ? 0x70 : 0x50) : (hov ? Ui.CARD3 : Ui.CARD2);
@@ -293,7 +312,7 @@ public class RadarScreen extends Screen {
             c.drawText(tr, d.name, lx + 28, ry + 4, 0xFFFFFFFF, true);
             c.drawText(tr, String.format("%.0f m", d.dist), lx + 28, ry + 14, Ui.MUTED, false);
 
-            if (cfg.tab == 0) {
+            if (cfg.tab == T_MS) {
                 int x = lx + 150;
                 c.drawItem(new ItemStack(Items.DIAMOND_SWORD), x, ry + 4);
                 c.drawText(tr, d.sword < 0 ? "?" : String.valueOf(d.sword), x + 19, ry + 8, 0xFFFF9955, true);
@@ -330,7 +349,7 @@ public class RadarScreen extends Screen {
         card(c, x0 + 14, cy, 210, bottom - cy);
         card(c, x0 + 234, cy, 232, bottom - cy);
 
-        // lewa: lista mobow
+        // lewa: opcjonalny filtr moba
         int lx = x0 + 24, ly = cy + 36, lw = 190, lh = bottom - 6 - ly;
         rectM[0] = lx; rectM[1] = ly; rectM[2] = lw; rectM[3] = lh;
         int vis = Math.max(1, lh / MROW);
@@ -348,46 +367,56 @@ public class RadarScreen extends Screen {
         if (mobs.isEmpty()) c.drawText(tr, "Brak wyników", lx + 4, ly + 6, Ui.MUTED, false);
         scrollbar(c, lx + lw - 3, ly, lh, mobs.size(), vis, scrollM);
 
-        // prawa: wybrany mob + napis + znalezione
-        c.drawText(tr, "Wybrany mob", x0 + 244, cy + 10, Ui.MUTED, false);
+        // prawa: napis (glowny filtr) + opcjonalny mob + wyniki
+        c.drawText(tr, "Napis (moby, hologramy, tabliczki)", x0 + 244, cy + 10, Ui.MUTED, false);
         EntityType<?> sel = null;
         for (EntityType<?> t : ALL_MOBS) {
             if (Registries.ENTITY_TYPE.getId(t).toString().equals(cfg.eventType)) { sel = t; break; }
         }
         if (sel != null) {
-            c.drawItem(icon(sel), x0 + 244, cy + 22);
-            c.drawText(tr, sel.getName().getString(), x0 + 264, cy + 27, 0xFFFFFFFF, true);
+            c.drawItem(icon(sel), x0 + 244, cy + 47);
+            c.drawText(tr, sel.getName().getString(), x0 + 264, cy + 52, 0xFFFFFFFF, true);
         } else {
-            c.drawText(tr, "Dowolny (kliknij moba z listy)", x0 + 244, cy + 27, Ui.MUTED, false);
+            c.drawText(tr, "Filtr moba: dowolny", x0 + 244, cy + 52, Ui.MUTED, false);
         }
-        c.drawText(tr, "Napis nad głową (zawiera)", x0 + 244, cy + 48, Ui.MUTED, false);
 
-        c.drawText(tr, "Znalezione: " + found.size() + (Radar.eventActive(cfg) ? "" : " §8(ustaw moba lub napis)"),
-            x0 + 244, cy + 112, Ui.MUTED, false);
-        int fx = x0 + 244, fy = cy + 124, fw = 212, fh = bottom - 6 - fy;
+        String active = Radar.eventActive(cfg) ? "" : " §8(wpisz napis)";
+        c.drawText(tr, "Znalezione: " + found.size() + active, x0 + 244, cy + 100, Ui.MUTED, false);
+        int fx = x0 + 244, fy = cy + 112, fw = 212, fh = bottom - 6 - fy;
         rectF[0] = fx; rectF[1] = fy; rectF[2] = fw; rectF[3] = fh;
         int fvis = Math.max(1, fh / MROW);
         for (int i = 0; i < fvis && i + scrollF < found.size(); i++) {
-            Entity en = found.get(i + scrollF);
+            Radar.Hit h = found.get(i + scrollF);
             int ry = fy + i * MROW;
-            boolean on = Radar.TRACED_UUID.contains(en.getUuid()) || Radar.targets.contains(en.getUuid());
+            boolean on = h.entity != null ? (Radar.TRACED_UUID.contains(h.entity.getUuid()) || Radar.targets.contains(h.entity.getUuid()))
+                                          : (Radar.TRACED_BLOCKS.contains(h.pos) || Radar.blockTargets.contains(h.pos));
             boolean hov = inside(mx, my, fx, ry, fw - 6, MROW - 2);
             Ui.rrect(c, fx, ry, fw - 6, MROW - 2, 5, hov ? Ui.CARD3 : Ui.CARD2);
-            c.drawItem(icon(en.getType()), fx + 2, ry);
-            String label = Radar.entityLabel(en);
-            c.drawText(tr, tr.trimToWidth(label, 100), fx + 22, ry + 5, 0xFFFFFFFF, false);
-            c.drawText(tr, String.format("%.0fm", mc().player.distanceTo(en)), fx + 124, ry + 5, Ui.MUTED, false);
+            c.drawItem(h.entity != null ? icon(h.entity.getType()) : new ItemStack(Items.OAK_SIGN), fx + 2, ry);
+            c.drawText(tr, tr.trimToWidth(h.label, 96), fx + 22, ry + 5, 0xFFFFFFFF, false);
+            c.drawText(tr, String.format("%.0fm", h.dist), fx + 122, ry + 5, Ui.MUTED, false);
             int px = fx + fw - 6 - 40;
             pill(c, tr, px, ry + 1, 36, 16, on, "TRACE", inside(mx, my, px, ry + 1, 36, 16), accent);
         }
         scrollbar(c, fx + fw - 3, fy, fh, found.size(), fvis, scrollF);
     }
 
-    private static MinecraftClient mc() { return MinecraftClient.getInstance(); }
+    // ---- PvP ----
+
+    private void renderPvp(DrawContext c, TextRenderer tr) {
+        card(c, x0 + 14, cy, W - 28, 62);
+        c.drawText(tr, "Wyłącza kołysanie kamery podczas chodzenia, trzęsienie po obrażeniach", x0 + 24, cy + 38, Ui.MUTED, false);
+        c.drawText(tr, "i zmiany FOV przy sprincie. Po wyłączeniu wraca Twoje ustawienie.", x0 + 24, cy + 48, Ui.MUTED, false);
+
+        card(c, x0 + 14, cy + 70, W - 28, 74);
+        c.drawText(tr, "Kolor hitboxów #", x0 + 24, cy + 111, Ui.MUTED, false);
+        drawSwatches(c, cy + 108, cfg.hitRgb());
+        c.drawText(tr, "Hitboxy w zasięgu radaru, widoczne też przez ściany.", x0 + 24, cy + 130, Ui.MUTED, false);
+    }
 
     // ---- ustawienia ----
 
-    private void renderSettings(DrawContext c, TextRenderer tr, int accent) {
+    private void renderSettings(DrawContext c, TextRenderer tr) {
         card(c, x0 + 14, cy, W - 28, 38);
         c.drawText(tr, "Zasięg radaru (m)", x0 + 24, cy + 15, Ui.MUTED, false);
         c.drawText(tr, "Zasięg tracerów (m)", x0 + 250, cy + 15, Ui.MUTED, false);
@@ -422,9 +451,8 @@ public class RadarScreen extends Screen {
         if (super.mouseClicked(mx, my, button)) return true;
         if (button != 0) return false;
 
-        // zakladki
         for (int i = 0; i < TABS.length; i++) {
-            if (inside(mx, my, x0 + 14 + i * 104, y0 + 26, 100, 20)) {
+            if (inside(mx, my, x0 + 14 + i * TAB_STEP, y0 + 26, TAB_W, 20)) {
                 if (cfg.tab != i) {
                     cfg.tab = i; cfg.save();
                     Ui.click(1.2f);
@@ -433,10 +461,8 @@ public class RadarScreen extends Screen {
                 return true;
             }
         }
-        // przyciski
         for (Btn b : btns) {
             if (inside(mx, my, b.x, b.y, b.w, b.h)) {
-                boolean before = b.on != null && b.on.getAsBoolean();
                 b.run.run();
                 boolean after = b.on != null && b.on.getAsBoolean();
                 Ui.click(b.on == null ? 1.0f : (after ? 1.35f : 0.8f));
@@ -444,7 +470,7 @@ public class RadarScreen extends Screen {
             }
         }
         // gracze: pill TRACER
-        if (cfg.tab <= 1 && inside(mx, my, rectP[0], rectP[1], rectP[2], rectP[3])) {
+        if (cfg.tab <= T_AN && inside(mx, my, rectP[0], rectP[1], rectP[2], rectP[3])) {
             int i = (int) ((my - rectP[1]) / ROW) + scrollP;
             int px = rectP[0] + rectP[2] - 8 - 62;
             if (i >= 0 && i < rows.size() && mx >= px && mx <= px + 56) {
@@ -455,40 +481,46 @@ public class RadarScreen extends Screen {
                 return true;
             }
         }
-        // event: lista mobow
-        if (cfg.tab == 2 && inside(mx, my, rectM[0], rectM[1], rectM[2] - 6, rectM[3])) {
-            int i = (int) ((my - rectM[1]) / MROW) + scrollM;
-            if (i >= 0 && i < mobs.size()) {
-                String id = Registries.ENTITY_TYPE.getId(mobs.get(i)).toString();
-                cfg.eventType = cfg.eventType.equals(id) ? "" : id;
-                cfg.save();
-                Ui.click(1.15f);
-                return true;
+        if (cfg.tab == T_EV) {
+            // lista mobow (filtr)
+            if (inside(mx, my, rectM[0], rectM[1], rectM[2] - 6, rectM[3])) {
+                int i = (int) ((my - rectM[1]) / MROW) + scrollM;
+                if (i >= 0 && i < mobs.size()) {
+                    String id = Registries.ENTITY_TYPE.getId(mobs.get(i)).toString();
+                    cfg.eventType = cfg.eventType.equals(id) ? "" : id;
+                    cfg.save();
+                    Ui.click(1.15f);
+                    return true;
+                }
+            }
+            // znalezione: TRACE
+            if (inside(mx, my, rectF[0], rectF[1], rectF[2], rectF[3])) {
+                int i = (int) ((my - rectF[1]) / MROW) + scrollF;
+                int px = rectF[0] + rectF[2] - 6 - 40;
+                if (i >= 0 && i < found.size() && mx >= px && mx <= px + 36) {
+                    Radar.Hit h = found.get(i);
+                    boolean added;
+                    if (h.entity != null) {
+                        added = !Radar.TRACED_UUID.remove(h.entity.getUuid());
+                        if (added) Radar.TRACED_UUID.add(h.entity.getUuid());
+                    } else {
+                        added = !Radar.TRACED_BLOCKS.remove(h.pos);
+                        if (added) Radar.TRACED_BLOCKS.add(h.pos);
+                    }
+                    Ui.click(added ? 1.35f : 0.8f);
+                    return true;
+                }
             }
         }
-        // event: znalezione
-        if (cfg.tab == 2 && inside(mx, my, rectF[0], rectF[1], rectF[2], rectF[3])) {
-            int i = (int) ((my - rectF[1]) / MROW) + scrollF;
-            int px = rectF[0] + rectF[2] - 6 - 40;
-            if (i >= 0 && i < found.size() && mx >= px && mx <= px + 36) {
-                UUID u = found.get(i).getUuid();
-                boolean added = !Radar.TRACED_UUID.remove(u);
-                if (added) Radar.TRACED_UUID.add(u);
-                Ui.click(added ? 1.35f : 0.8f);
-                return true;
-            }
-        }
-        // ustawienia: kolory
-        if (cfg.tab == 3) {
-            for (int i = 0; i < SWATCH.length; i++) {
-                int sx = x0 + 256 + i * 20;
-                String hex = String.format("%06X", SWATCH[i]);
-                if (inside(mx, my, sx, cy + 58, 14, 14) && tracerHex != null) {
-                    tracerHex.setText(hex); Ui.click(1.2f); return true;
-                }
-                if (inside(mx, my, sx, cy + 102, 14, 14) && guiHex != null) {
-                    guiHex.setText(hex); Ui.click(1.2f); return true;
-                }
+        // palety kolorow
+        for (int i = 0; i < SWATCH.length; i++) {
+            int sx = x0 + 256 + i * 20;
+            String hex = String.format("%06X", SWATCH[i]);
+            if (cfg.tab == T_SET) {
+                if (inside(mx, my, sx, cy + 58, 14, 14) && tracerHex != null) { tracerHex.setText(hex); Ui.click(1.2f); return true; }
+                if (inside(mx, my, sx, cy + 102, 14, 14) && guiHex != null) { guiHex.setText(hex); Ui.click(1.2f); return true; }
+            } else if (cfg.tab == T_PVP) {
+                if (inside(mx, my, sx, cy + 108, 14, 14) && hitHex != null) { hitHex.setText(hex); Ui.click(1.2f); return true; }
             }
         }
         return false;
@@ -497,12 +529,12 @@ public class RadarScreen extends Screen {
     @Override
     public boolean mouseScrolled(double mx, double my, double h, double v) {
         int dir = -(int) Math.signum(v);
-        if (cfg.tab <= 1 && inside(mx, my, rectP[0], rectP[1], rectP[2], rectP[3])) {
+        if (cfg.tab <= T_AN && inside(mx, my, rectP[0], rectP[1], rectP[2], rectP[3])) {
             int max = Math.max(0, rows.size() - Math.max(1, rectP[3] / ROW));
             scrollP = Math.max(0, Math.min(max, scrollP + dir));
             return true;
         }
-        if (cfg.tab == 2) {
+        if (cfg.tab == T_EV) {
             if (inside(mx, my, rectM[0], rectM[1], rectM[2], rectM[3])) {
                 int max = Math.max(0, mobs.size() - Math.max(1, rectM[3] / MROW));
                 scrollM = Math.max(0, Math.min(max, scrollM + dir));

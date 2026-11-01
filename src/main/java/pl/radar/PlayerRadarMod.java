@@ -23,6 +23,7 @@ public class PlayerRadarMod implements ClientModInitializer {
             "key.playerradar.open", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_R, "category.playerradar"));
 
         ClientTickEvents.END_CLIENT_TICK.register(mc -> {
+            PvpTweaks.tick();
             while (OPEN.wasPressed()) mc.setScreen(new RadarScreen());
             if (mc.world == null) { Radar.targets = java.util.Set.of(); return; }
             Radar.tick();
