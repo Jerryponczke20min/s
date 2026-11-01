@@ -1,0 +1,30 @@
+name: Build mod
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: 21
+          distribution: temurin
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.12"
+
+      - name: Build
+        run: gradle build
+
+      - name: Upload mod .jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: fake-bone-meal-mod
+          path: build/libs/*.jar

@@ -1,0 +1,14 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "com.example.fakebonemeal.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "ItemModelManagerMixin",
+    "DrawContextMixin",
+    "ItemStackMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

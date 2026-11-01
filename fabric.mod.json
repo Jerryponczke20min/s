@@ -1,16 +1,22 @@
 {
   "schemaVersion": 1,
-  "id": "playerradar",
+  "id": "fakebonemeal",
   "version": "${version}",
-  "name": "Radar Graczy",
-  "description": "Radar graczy z filtrami (MineStar / Anarchia) i tracerami.",
-  "authors": ["you"],
+  "name": "Fake Bone Meal",
+  "description": "Wizualny (tylko u Ciebie) bone meal: sadzi falszywa trawe i kwiatki na dowolnym serwerze.",
+  "authors": ["Ty"],
+  "license": "MIT",
   "environment": "client",
-  "entrypoints": { "client": ["pl.radar.PlayerRadarMod"] },
+  "entrypoints": {
+    "client": ["com.example.fakebonemeal.FakeBoneMealClient"]
+  },
+  "mixins": [
+    { "config": "fakebonemeal.mixins.json", "environment": "client" },
+    { "config": "fakebonemeal.safety.mixins.json", "environment": "client" }
+  ],
   "depends": {
-    "fabricloader": ">=0.16.9",
+    "fabricloader": ">=0.16.0",
     "minecraft": "~1.21.4",
-    "java": ">=21",
-    "fabric-api": "*"
+    "java": ">=21"
   }
 }
